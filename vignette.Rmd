@@ -9,7 +9,19 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## MacroSheds dataset layout
+## MacroSheds: long-term watershed ecosystem studies, harmonized
+
+### Goals:
+ + enable calculation of input/output solute fluxes from diverse watersheds
+ + facilitate exploration of questions...
+ + something about viz
+ 
+### Components:
+ + macrosheds.org
+ + EDI
+ + package
+ 
+
 
 ```{r cars}
 summary(cars)
