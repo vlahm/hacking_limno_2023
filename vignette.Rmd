@@ -1,29 +1,97 @@
 ---
-title: "Macroscale watershed science exploration"
-author: "Mike Vlah"
-date: "2023-07-12"
-output: html_document
+title: "Macroscale watershed science"
+subtitle: "Hacking Limnology 2023"
+output:
+    html_document:
+        theme: "lumen"
+        toc: yes
+        toc_float:
+            collapsed: true
 ---
 
-```{r setup, include=FALSE}
+```{r setup1, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+---
+
 ## MacroSheds: long-term watershed ecosystem studies, harmonized
 
-### Goals:
+#### Goals:
  + enable calculation of input/output solute fluxes from diverse watersheds
- + facilitate exploration of questions...
- + something about viz
+ + lower barriers through data harmonization and visualization
+ + investigate:
+   + variation in magnitude, timing, form of N exports
+   + broad effects of watershed acidification
+   + variation in mineral weathering
+   + watershed sensitivity to climate change
  
-### Components:
- + macrosheds.org
- + EDI
- + package
+#### Components:
+ + [macrosheds.org](https://macrosheds.org)
+ + [The dataset](https://portal.edirepository.org/nis/mapbrowse?scope=edi&identifier=1262)
+ + [R package](https://github.com/MacroSHEDS/macrosheds)
+ + [All project code](https://github.com/MacroSHEDS)
  
+#### Terms:
+ + site: an individual gauging station or stream sampling location and its watershed
+ + domain: one or more sites under common management
+ + network: one or more domains under common funding/leadership
+ + flux: solute mass normalized to watershed area, over time (kg/ha/d)
+ 
+## Related resources
 
+ + [GEMStat](https://gemstat.org/) - global water quality database
+ + [GLORICH](https://www.geo.uni-hamburg.de/en/geologie/forschung/aquatische-geochemie/glorich.html) - global river chemistry database
+ + [Water Quality Portal (WQP)](https://www.waterqualitydata.us/) - USA water quality database
+ + [Global River Water Quality Archive](https://essd.copernicus.org/articles/13/5483/2021/) - subset of: GEMStat + GLORICH + WQP + CESI (Canada) + Waterbase (Europe)
+ + CAMELS - Catchment Attributes and MEteorology for Large-sample Studies
+   + [USA](https://gdex.ucar.edu/dataset/camels.html)
+   + [Australia](https://www.webofscience.com/wos/woscc/full-record/WOS:000683780500004?SID=USW2EC0D4DYFZoLYt17MtaFngvTOg)
+   + [Brazil](https://www.webofscience.com/wos/woscc/full-record/WOS:000569420300002?SID=USW2EC0D4DYFZoLYt17MtaFngvTOg)
+   + [Chile](https://www.webofscience.com/wos/woscc/full-record/WOS:000449995800002?SID=USW2EC0D4DYFZoLYt17MtaFngvTOg)
+   + [Great Britain](https://www.webofscience.com/wos/woscc/full-record/WOS:000580860000002?SID=USW2EC0D4DYFZoLYt17MtaFngvTOg)
+ + [Caravan](https://zenodo.org/record/7944025) - subset of: CAMELS + HYSETS (N. Am.) + LamaH-CE (central Europe)
++ [CAMELS-Chem](https://hess.copernicus.org/preprints/hess-2022-81/) - chemistry for CAMELS-US
 
-```{r cars}
-summary(cars)
+```{r setup2}
+library(macrosheds)
+library(tidyverse)
+
+project_root <- '~/macrosheds_workshop'
 ```
 
+```{r retrieve1}
+# sites <- ms_load_sites()
+# sitevars <- ms_load_variables('timeseries_by_site')
+
+ms_download_ws_attr(project_root, dataset = 'summaries')
+ws_smry <- ms_load_product(project_root, prodname = 'ws_attr_summaries')
+#definitions: https://portal.edirepository.org/nis/metadataviewer?packageid=edi.1262.1 -> Data Entities -> ws_attr_summaries.csv
+
+# site_attrs <- sites %>% 
+#     filter(site_type == 'stream_gauge') %>%
+#     select(site_code, ) %>% 
+#     left_join(ws_smry, by = c('network', 'domain', 'site_code'))
+```
+
+
+# ```{r retrieve2}
+# 
+# ms_download_core_data()
+# ms_load_product()
+# macrosheds::ms_load_spatial_product()
+# ```
+
+```{r pca}
+pca_data <- select(ws_smry, -site_code, -domain, -network) %>% 
+    select(where( ~sum(is.na(.)) / length(.) < 0.3)) %>% #drop columns with >= 30% missing values
+    drop_na() %>%                                        #drop rows with any missing values
+    select(where(~sd(., na.rm = TRUE) != 0)) %>%         #drop columns with no variance
+    as.matrix()
+
+# apply(pca_data, 2, sd, na.rm = T) %>% unname()
+# apply(ws_smry, 2, function(x) sum(is.na(x)))
+
+pca <- prcomp(pca_data, center = TRUE, scale. = TRUE)
+biplot(pca)
+```
