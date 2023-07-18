@@ -54,44 +54,106 @@ knitr::opts_chunk$set(echo = TRUE)
 + [CAMELS-Chem](https://hess.copernicus.org/preprints/hess-2022-81/) - chemistry for CAMELS-US
 
 ```{r setup2}
+
 library(macrosheds)
 library(tidyverse)
+library(vegan)
+library(factoextra)
 
-project_root <- '~/macrosheds_workshop'
+project_root <- "~/macrosheds_workshop"
 ```
 
 ```{r retrieve1}
-# sites <- ms_load_sites()
-# sitevars <- ms_load_variables('timeseries_by_site')
 
-ms_download_ws_attr(project_root, dataset = 'summaries')
-ws_smry <- ms_load_product(project_root, prodname = 'ws_attr_summaries')
-#definitions: https://portal.edirepository.org/nis/metadataviewer?packageid=edi.1262.1 -> Data Entities -> ws_attr_summaries.csv
+?ms_download_ws_attr
+?ms_load_product
 
-# site_attrs <- sites %>% 
-#     filter(site_type == 'stream_gauge') %>%
-#     select(site_code, ) %>% 
-#     left_join(ws_smry, by = c('network', 'domain', 'site_code'))
+ms_download_ws_attr(project_root, dataset = "summaries")
+ws_smry <- ms_load_product(project_root, prodname = "ws_attr_summaries")
 ```
 
+ + watershed summary attribute definitions: https://portal.edirepository.org/nis/metadataviewer?packageid=edi.1262.1 -> Data Entities -> ws_attr_summaries.csv
+ + two-letter prefixes: variable_category_codes_ws_attr.csv, variable_data_source_codes_ws_attr.csv
 
-# ```{r retrieve2}
-# 
-# ms_download_core_data()
-# ms_load_product()
-# macrosheds::ms_load_spatial_product()
-# ```
+Principal component analysis of watershed summary attributes
 
 ```{r pca}
-pca_data <- select(ws_smry, -site_code, -domain, -network) %>% 
+
+pca_data <- ws_smry %>% 
     select(where( ~sum(is.na(.)) / length(.) < 0.3)) %>% #drop columns with >= 30% missing values
-    drop_na() %>%                                        #drop rows with any missing values
+    drop_na()                                            #drop rows with any missing values
+
+domains <- pca_data$domain
+
+pca_data <- pca_data %>% 
+    select(-site_code, -domain, -network) %>% 
     select(where(~sd(., na.rm = TRUE) != 0)) %>%         #drop columns with no variance
     as.matrix()
 
-# apply(pca_data, 2, sd, na.rm = T) %>% unname()
-# apply(ws_smry, 2, function(x) sum(is.na(x)))
+smry_categories <- substr(colnames(pca_data), 1, 1)
+category_map <- c('c' = 'climate', 'h' = 'hydrology', 'l' = 'landcover',
+                  'p' = 'parentmat', 't' = 'terrain', 'v' = 'vegetation',
+                  'w' = 'ws area')
+smry_categories <- factor(category_map[match(smry_categories, names(category_map))])
 
 pca <- prcomp(pca_data, center = TRUE, scale. = TRUE)
-biplot(pca)
+
+fviz_eig(pca)
+
+fviz_pca_biplot(pca, geom.var = "arrow", geom.ind = "point", title = "",
+                col.var = smry_categories, palette = 'Dark2')
+
+fviz_pca_biplot(pca, geom.var = "", geom.ind = "point", title = "",
+                col.ind = as.factor(domains))
+```
+
+Identify domains at elevational extremes (3 of each)
+
+```{r filter}
+
+elev_extreme_domains <- ws_smry %>% 
+    filter(! is.na(te_elev_mean)) %>% #no watersheds delineated for McMurdo LTER
+    group_by(domain) %>% 
+    summarize(domain_mean_elev = mean(te_elev_mean)) %>% 
+    ungroup() %>% 
+    arrange(desc(domain_mean_elev)) %>% 
+    slice(c(1:3, (n() - 2):n())) %>% #3 highest and 3 lowest domains, by average watershed elevation
+    print() %>% 
+    pull(domain)
+```
+
+What variables do they share?
+
+```{r shared variables}
+
+?ms_load_variables
+sitevars <- ms_load_variables('timeseries_by_site')
+site_attrs <- sites %>%
+    filter(site_type == 'stream_gauge') %>%
+    select(site_code, ) %>%
+    left_join(ws_smry, by = c('network', 'domain', 'site_code'))
+
+```
+
+FOR HOW LONG?
+FILTER DATASET TO THE LENGTH OF THOSE VARIABLES, AND JUST THOSE DOMAINS
+
+```{r regression1}
+DO MULTIPLE REGRESSION TO SEE WHICH SOLUTES BEST CAPTURE...
+THEN SHOW HOW TO CONVERT TO FLUX
+DO AGAIN WITH FLUX
+```
+
+WATERSHED DELINEATION?
+CALC WATERSHED PRECIP?
+ATTRIBUTION
+RUN EGRET?
+SCALE FLUX BY AREA
+SEPARATE BASEFLOW
+SYNCHRONIZE TIMESTEP?
+
+```{r retrieve2}
+ms_download_core_data()
+ms_load_product()
+macrosheds::ms_load_spatial_product()
 ```
