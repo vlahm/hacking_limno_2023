@@ -109,7 +109,7 @@ fviz_pca_biplot(pca, geom.var = "", geom.ind = "point", title = "",
 
 Identify domains at elevational extremes (3 of each)
 
-```{r filter}
+```{r identify target domains}
 
 elev_extreme_domains <- ws_smry %>% 
     filter(! is.na(te_elev_mean)) %>% #no watersheds delineated for McMurdo LTER
@@ -122,16 +122,31 @@ elev_extreme_domains <- ws_smry %>%
     pull(domain)
 ```
 
+Load site-variable catalog; filter by domain
+
+```{r filter}
+
+?ms_load_variables
+sitevars <- ms_load_variables('timeseries_by_site')
+
+sitevars <- filter(sitevars, domain %in% elev_extreme_domains)
+```
+
 What variables do they share?
 
 ```{r shared variables}
 
-?ms_load_variables
-sitevars <- ms_load_variables('timeseries_by_site')
-site_attrs <- sites %>%
-    filter(site_type == 'stream_gauge') %>%
-    select(site_code, ) %>%
-    left_join(ws_smry, by = c('network', 'domain', 'site_code'))
+print('all shared variables')
+print(unique(sitevars$variable_code))
+
+print('vars recorded for >= 5 years, at >= average rate of 12 obs/year')
+sitevars %>% 
+    mutate(ndays = difftime(last_record_utc, first_record_utc, unit = 'days'),
+           nyears = as.numeric(ndays / 365.25)) %>% 
+    filter(domain %in% elev_extreme_domains,
+           nyears >= 5,
+           )
+    filter(variable_code %in% 
 
 ```
 
@@ -157,3 +172,8 @@ ms_download_core_data()
 ms_load_product()
 macrosheds::ms_load_spatial_product()
 ```
+
+site_attrs <- sites %>%
+    filter(site_type == 'stream_gauge') %>%
+    select(site_code, ) %>%
+    left_join(ws_smry, by = c('network', 'domain', 'site_code'))
