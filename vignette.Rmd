@@ -1,12 +1,13 @@
 ---
-title: "Macroscale watershed science"
-subtitle: "Hacking Limnology 2023"
+title: 'Macroscale watershed science'
+subtitle: 'Hacking Limnology 2023'
 output:
     html_document:
-        theme: "lumen"
+        theme: 'lumen'
         toc: yes
         toc_float:
             collapsed: true
+        toc_depth: 4
 ---
 
 ```{r setup1, include=FALSE}
@@ -17,7 +18,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## MacroSheds: long-term watershed ecosystem studies, harmonized
 
-#### Goals:
+### Goals
  + enable calculation of input/output solute fluxes from diverse watersheds
  + lower barriers through data harmonization and visualization
  + investigate:
@@ -26,13 +27,13 @@ knitr::opts_chunk$set(echo = TRUE)
    + variation in mineral weathering
    + watershed sensitivity to climate change
  
-#### Components:
+### Components
  + [macrosheds.org](https://macrosheds.org)
  + [The dataset](https://portal.edirepository.org/nis/mapbrowse?scope=edi&identifier=1262)
  + [R package](https://github.com/MacroSHEDS/macrosheds)
  + [All project code](https://github.com/MacroSHEDS)
  
-#### Terms:
+### Terms
  + site: an individual gauging station or stream sampling location and its watershed
  + domain: one or more sites under common management
  + network: one or more domains under common funding/leadership
@@ -53,31 +54,40 @@ knitr::opts_chunk$set(echo = TRUE)
  + [Caravan](https://zenodo.org/record/7944025) - subset of: CAMELS + HYSETS (N. Am.) + LamaH-CE (central Europe)
 + [CAMELS-Chem](https://hess.copernicus.org/preprints/hess-2022-81/) - chemistry for CAMELS-US
 
+## Part 1: Setup and overview
+
 ```{r setup2}
 
+suppressPackageStartupMessages(library(tidyverse))
 library(macrosheds)
-library(tidyverse)
-library(vegan)
-library(factoextra)
 
-project_root <- "~/macrosheds_workshop"
+project_root <- '~/macrosheds_workshop'
+
+
 ```
+
+### Retrieval of basic site data, watershed summary attributes
 
 ```{r retrieve1}
 
-?ms_download_ws_attr
-?ms_load_product
+ms_sites <- ms_load_sites() %>% 
+    filter(site_type == 'stream_gauge') #some precip gauges have the same names as stream gauges!
 
-ms_download_ws_attr(project_root, dataset = "summaries")
-ws_smry <- ms_load_product(project_root, prodname = "ws_attr_summaries")
+?ms_download_ws_attr
+ms_download_ws_attr(project_root, dataset = 'summaries')
+
+?ms_load_product
+ws_smry <- ms_load_product(project_root, prodname = 'ws_attr_summaries')
 ```
 
- + watershed summary attribute definitions: https://portal.edirepository.org/nis/metadataviewer?packageid=edi.1262.1 -> Data Entities -> ws_attr_summaries.csv
- + two-letter prefixes: variable_category_codes_ws_attr.csv, variable_data_source_codes_ws_attr.csv
+ + watershed summary attribute definitions: [https://portal.edirepository.org/nis/metadataviewer?packageid=edi.1262.1] -> Data Entities -> `ws_attr_summaries.csv`
+ + two-letter variable prefixes: `variable_category_codes_ws_attr.csv`, `variable_data_source_codes_ws_attr.csv`
 
-Principal component analysis of watershed summary attributes
+### Principal component analysis of watershed summary attributes
 
 ```{r pca}
+
+suppressPackageStartupMessages(library(factoextra))
 
 pca_data <- ws_smry %>% 
     select(where( ~sum(is.na(.)) / length(.) < 0.3)) %>% #drop columns with >= 30% missing values
@@ -100,14 +110,14 @@ pca <- prcomp(pca_data, center = TRUE, scale. = TRUE)
 
 fviz_eig(pca)
 
-fviz_pca_biplot(pca, geom.var = "arrow", geom.ind = "point", title = "",
+fviz_pca_biplot(pca, geom.var = 'arrow', geom.ind = 'point', title = '',
                 col.var = smry_categories, palette = 'Dark2')
 
-fviz_pca_biplot(pca, geom.var = "", geom.ind = "point", title = "",
+fviz_pca_biplot(pca, geom.var = '', geom.ind = 'point', title = '',
                 col.ind = as.factor(domains))
 ```
 
-Identify domains at elevational extremes (3 of each)
+### Identify domains at elevational extremes (3 of each)
 
 ```{r identify target domains}
 
@@ -117,48 +127,165 @@ elev_extreme_domains <- ws_smry %>%
     summarize(domain_mean_elev = mean(te_elev_mean)) %>% 
     ungroup() %>% 
     arrange(desc(domain_mean_elev)) %>% 
-    slice(c(1:3, (n() - 2):n())) %>% #3 highest and 3 lowest domains, by average watershed elevation
-    print() %>% 
+    slice(c(1:2, (n() - 1):n())) %>% #2 highest and 3 lowest domains, by average watershed elevation
+    print() %>%
     pull(domain)
 ```
 
-Load site-variable catalog; filter by domain
+### Load site-variable catalog; filter by domain
 
-```{r filter}
+```{r filter1}
 
 ?ms_load_variables
 sitevars <- ms_load_variables('timeseries_by_site')
 
-sitevars <- filter(sitevars, domain %in% elev_extreme_domains)
+sitevars <- filter(sitevars,
+                   domain %in% elev_extreme_domains,
+                   chem_category == 'stream_conc')
+
+length(unique(sitevars$site_code)) # n sites
 ```
 
-What variables do they share?
+### What variables are shared by at least one site from each of these 4 domains?
 
 ```{r shared variables}
 
-print('all shared variables')
-print(unique(sitevars$variable_code))
+get_shared_domain_vars <- function(df){
 
-print('vars recorded for >= 5 years, at >= average rate of 12 obs/year')
-sitevars %>% 
-    mutate(ndays = difftime(last_record_utc, first_record_utc, unit = 'days'),
-           nyears = as.numeric(ndays / 365.25)) %>% 
-    filter(domain %in% elev_extreme_domains,
-           nyears >= 5,
-           )
-    filter(variable_code %in% 
+    df %>% 
+        group_split(domain) %>% 
+        map(~ pluck(.x, 'variable_code')) %>% 
+        reduce(intersect)
+}
 
+get_shared_domain_vars(sitevars)
 ```
 
-FOR HOW LONG?
-FILTER DATASET TO THE LENGTH OF THOSE VARIABLES, AND JUST THOSE DOMAINS
+### Again, but filter for variables recorded for >= 2 years, at >= average rate of 36 obs/year
 
-```{r regression1}
-DO MULTIPLE REGRESSION TO SEE WHICH SOLUTES BEST CAPTURE...
+```{r shared variables filt}
+
+sitevars <- sitevars %>% 
+    mutate(ndays = difftime(last_record_utc, first_record_utc, unit = 'days')) %>% 
+    filter(ndays >= 2 * 365.25,
+           mean_obs_per_day * 365.25 >= 36)
+
+get_shared_domain_vars(sitevars)
+```
+
+### Retrieve time-series data
+
+```{r retrieve2}
+
+?ms_download_core_data
+# ms_download_core_data(project_root, domains = elev_extreme_domains)
+
+?ms_load_product
+(doc <- ms_load_product(
+    project_root,
+    prodname = 'stream_chemistry',
+    filter_vars = 'DOC',
+    domain = elev_extreme_domains,
+    warn = FALSE
+))
+
+unique(doc$var)
+table(doc$ms_status)
+table(doc$ms_interp)
+```
+
+ + time-series column definitions: [https://portal.edirepository.org/nis/metadataviewer?packageid=edi.1262.1] -> Data Entities -> e.g. `timeseries_boulder.csv`
+ + two-letter variable_code prefixes (ts only)
+   + G = grab sample
+   + I = installed instrument
+   + S = sensor
+   + N = non-sensor
+ + variable units and full names are included in `sitevars`
+
+## Part 2: Which variables best predict DOC at high and low elevation sites?
+
+### remove questionable observations; plot time series
+
+```{r ms_status}
+
+doc <- doc %>% 
+    filter(ms_status == 0) %>% #remove ms_status == 1 (questionable)
+    select(datetime, site_code, val) %>% 
+    left_join(select(ms_sites, site_code, domain), #join column of domain names
+              by = 'site_code') %>% 
+    filter(! is.na(domain)) %>%  #some site data is missing in MS version 1 (whoops)
+    pivot_wider(names_from = c(domain, site_code),
+                values_from = val,
+                names_sep = '__') %>% #column names are of the form <domain>__<site_code>
+    arrange(datetime) %>% #make sure it's all sorted chronologically
+    complete(datetime = seq(first(datetime), last(datetime), by = 'day')) #explicate missing observations
+
+library(xts)
+library(dygraphs)
+
+dmn_colors <- factor(str_split_fixed(colnames(doc)[-1], '__', n = 2)[, 1])
+levels(dmn_colors) <- hcl.colors(length(elev_extreme_domains))
+
+dg <- dygraph(xts(x = doc[, -1], order.by = doc$datetime)) %>% 
+    dyRangeSelector()
+for(i in 2:ncol(doc)){
+    dg <- dySeries(dg, colnames(doc)[i], color = as.character(dmn_colors[i - 1]))
+}
+dg
+```
+
+### Which watershed attributes predict temporal variation in DOC concentration
+
+```{r regression}
+#compute CV for each site
+#join ws attrs
+#glmnet
+```
+
+### Convert nitrate-N concentration to daily flux (basic mode)
+
+```{r flux conversion}
+NO3_N_conc <- ms_load_product(
+    project_root,
+    prodname = 'stream_chemistry',
+    filter_vars = 'NO3_N',
+    domain = 'niwot',
+    warn = FALSE
+)
+
+Q <- ms_load_product(
+    project_root,
+    prodname = 'discharge',
+    domain = 'niwot',
+    warn = FALSE
+)
+
+NO3_N_conc <- semi_join(NO3_N_conc, Q, by = 'site_code')
+
+#before
+filter(NO3_N_conc, datetime == as.POSIXct('1985-05-09 00:00:00', tz = 'UTC'), site_code == 'ALBION')
+
+NO3_N_flux <- ms_calc_flux(NO3_N_conc, Q, q_type = 'discharge')
+
+#after
+filter(NO3_N_flux, datetime == as.POSIXct('1985-05-09 00:00:00', tz = 'UTC'), site_code == 'ALBION')
+```
+
+### Compute annual nitrate-N load (still in beta)
+
+```{r load calc}
+
+# `:::` is used to call internal package functions. this function will be
+# officially included in the macrosheds package when we release version 2 of
+# the MacroSheds dataset, which will include monthly and yearly load estimates
+# based on Gubbins et al. in prep
+NO3_N_load <- macrosheds:::ms_calc_flux_rsfme(NO3_N_conc, Q, 
+```
+
 THEN SHOW HOW TO CONVERT TO FLUX
 DO AGAIN WITH FLUX
-```
 
+PRECIP AND STREAM
 WATERSHED DELINEATION?
 CALC WATERSHED PRECIP?
 ATTRIBUTION
@@ -168,12 +295,13 @@ SEPARATE BASEFLOW
 SYNCHRONIZE TIMESTEP?
 
 ```{r retrieve2}
-ms_download_core_data()
-ms_load_product()
-macrosheds::ms_load_spatial_product()
+# ms_download_core_data()
+# ms_load_product()
+# macrosheds::ms_load_spatial_product()
 ```
 
 site_attrs <- sites %>%
     filter(site_type == 'stream_gauge') %>%
     select(site_code, ) %>%
     left_join(ws_smry, by = c('network', 'domain', 'site_code'))
+
