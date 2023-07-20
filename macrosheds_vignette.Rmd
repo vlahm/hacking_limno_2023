@@ -11,37 +11,37 @@ output:
 ---
 
 ```{r setup1, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE, comment = ' ')
 ```
 
 ---
 
-## MacroSheds
+# MacroSheds
 
 _*long-term watershed ecosystem studies, harmonized*_
 
-### Goals
+## Goals
  + enable calculation of input/output solute fluxes from diverse watersheds
- + lower barriers through data harmonization and visualization
+ + lower barriers to accessing diverse watershed data through data harmonization and visualization
  + investigate:
    + variation in magnitude, timing, form of N exports
    + broad effects of watershed acidification
    + variation in mineral weathering
    + watershed sensitivity to climate change
  
-### Components
+## Components
  + [macrosheds.org](https://macrosheds.org)
  + [The dataset](https://portal.edirepository.org/nis/mapbrowse?scope=edi&identifier=1262)
  + [R package](https://github.com/MacroSHEDS/macrosheds)
  + [All project code](https://github.com/MacroSHEDS)
  
-### Terms
+## Terms
  + site: an individual gauging station or stream sampling location and its watershed
  + domain: one or more sites under common management
  + network: one or more domains under common funding/leadership
  + flux: solute mass normalized to watershed area, over time (kg/ha/d)
  
-## Related resources
+# Related resources
 
  + [GEMStat](https://gemstat.org/) - global water quality database
  + [GLORICH](https://www.geo.uni-hamburg.de/en/geologie/forschung/aquatische-geochemie/glorich.html) - global river chemistry database
@@ -56,7 +56,11 @@ _*long-term watershed ecosystem studies, harmonized*_
  + [Caravan](https://zenodo.org/record/7944025) - subset of: CAMELS + HYSETS (N. Am.) + LamaH-CE (central Europe)
 + [CAMELS-Chem](https://hess.copernicus.org/preprints/hess-2022-81/) - chemistry for CAMELS-US
 
-## Part 1: Setup and overview
+# Part 1: Setup and overview
+
+```{r install, eval=FALSE}
+devtools::install_github('https://github.com/MacroSHEDS/macrosheds.git')
+```
 
 ```{r setup2}
 
@@ -64,13 +68,11 @@ suppressPackageStartupMessages(library(tidyverse))
 library(macrosheds)
 
 project_root <- '~/macrosheds_workshop'
-
-
 ```
 
-### Retrieval of basic site data, watershed summary attributes
+## Retrieval of basic site data, watershed summary attributes
 
-```{r retrieve1}
+```{r retrieve1, cache=TRUE}
 
 ms_sites <- ms_load_sites() %>% 
     filter(site_type == 'stream_gauge') #some precip gauges have the same names as stream gauges!
@@ -85,7 +87,7 @@ ws_smry <- ms_load_product(project_root, prodname = 'ws_attr_summaries')
  + watershed summary attribute definitions: [https://portal.edirepository.org/nis/metadataviewer?packageid=edi.1262.1] -> Data Entities -> `ws_attr_summaries.csv`
  + two-letter variable prefixes: `variable_category_codes_ws_attr.csv`, `variable_data_source_codes_ws_attr.csv`
 
-### Principal component analysis of watershed summary attributes
+## Principal component analysis of watershed summary attributes
 
 ```{r pca}
 
@@ -119,7 +121,7 @@ fviz_pca_biplot(pca, geom.var = '', geom.ind = 'point', title = '',
                 col.ind = as.factor(domains))
 ```
 
-### Identify domains at elevational extremes (3 of each)
+## Identify domains at elevational extremes (2 of each)
 
 ```{r identify target domains}
 
@@ -129,12 +131,12 @@ elev_extreme_domains <- ws_smry %>%
     summarize(domain_mean_elev = mean(te_elev_mean)) %>% 
     ungroup() %>% 
     arrange(desc(domain_mean_elev)) %>% 
-    slice(c(1:2, (n() - 1):n())) %>% #2 highest and 3 lowest domains, by average watershed elevation
+    slice(c(1:2, (n() - 1):n())) %>% #2 highest and 2 lowest domains, by average watershed elevation
     print() %>%
     pull(domain)
 ```
 
-### Load site-variable catalog; filter by domain
+## Load site-variable catalog; filter by domain
 
 ```{r filter1}
 
@@ -148,7 +150,7 @@ sitevars <- filter(sitevars,
 length(unique(sitevars$site_code)) # n sites
 ```
 
-### What variables are shared by at least one site from each of these 4 domains?
+## What variables are shared by at least one site from each of these 4 domains?
 
 ```{r shared variables}
 
@@ -163,7 +165,7 @@ get_shared_domain_vars <- function(df){
 get_shared_domain_vars(sitevars)
 ```
 
-### Again, but filter for variables recorded for >= 2 years, at >= average rate of 36 obs/year
+## Again, but filter for variables recorded for >= 2 years, at >= average rate of 36 obs/year
 
 ```{r shared variables filt}
 
@@ -175,12 +177,12 @@ sitevars <- sitevars %>%
 get_shared_domain_vars(sitevars)
 ```
 
-### Retrieve time-series data
+## Retrieve core time-series data
 
-```{r retrieve2}
+```{r retrieve2, cache=TRUE}
 
 ?ms_download_core_data
-# ms_download_core_data(project_root, domains = elev_extreme_domains)
+ms_download_core_data(project_root, domains = elev_extreme_domains)
 
 ?ms_load_product
 (doc <- ms_load_product(
@@ -204,9 +206,9 @@ table(doc$ms_interp)
    + N = non-sensor
  + variable units and full names are included in `sitevars`
 
-## Part 2: Which variables best predict DOC at high and low elevation sites?
+# Part 2: Which variables best predict DOC at high and low elevation sites?
 
-### remove questionable observations; plot time series
+## remove questionable observations; plot time series
 
 ```{r ms_status}
 
@@ -222,7 +224,7 @@ doc_wide <- doc %>%
     arrange(datetime) %>% #make sure it's all sorted chronologically
     complete(datetime = seq(first(datetime), last(datetime), by = 'day')) #explicate missing observations
 
-library(xts)
+suppressPackageStartupMessages(library(xts))
 library(dygraphs)
 
 dmn_colors <- factor(str_split_fixed(colnames(doc_wide)[-1], '__', n = 2)[, 1])
@@ -236,7 +238,7 @@ for(i in 2:ncol(doc_wide)){
 dg
 ```
 
-### Which watershed attributes predict temporal variation in DOC concentration
+## Which watershed attributes predict temporal variation in DOC concentration
 
 ```{r regression}
 #compute CV for each site
@@ -244,7 +246,7 @@ dg
 #glmnet
 ```
 
-### Convert nitrate-N concentration to daily flux (basic mode)
+## Convert nitrate-N concentration to daily flux (basic mode)
 
 ```{r flux conversion}
 NO3_N_conc <- ms_load_product(
@@ -267,13 +269,15 @@ NO3_N_conc <- semi_join(NO3_N_conc, Q, by = 'site_code')
 #before
 filter(NO3_N_conc, datetime == as.POSIXct('1985-05-09 00:00:00', tz = 'UTC'), site_code == 'ALBION')
 
-NO3_N_flux <- ms_calc_flux(NO3_N_conc, Q, q_type = 'discharge')
+NO3_N_flux <- suppressPackageStartupMessages({
+    ms_calc_flux(NO3_N_conc, Q, q_type = 'discharge')
+})
 
 #after
 filter(NO3_N_flux, datetime == as.POSIXct('1985-05-09 00:00:00', tz = 'UTC'), site_code == 'ALBION')
 ```
 
-### Compute annual nitrate-N load (still in development)
+## Compute annual nitrate-N load (still in development)
 
 ```{r load calc, eval=FALSE}
 
@@ -288,7 +292,7 @@ NO3_N_load <- macrosheds:::ms_calc_flux_rsfme(
 )
 ```
 
-### WRTDS flux via EGRET package
+## WRTDS flux via EGRET package
 
 ```{r wrtds, eval=FALSE}
 
@@ -296,21 +300,21 @@ ms_run_egret(stream_chemistry = filter(NO3_N_conc, site_code == 'ALBION'),
              discharge = filter(Q, site_code == 'ALBION'))
 ```
 
-### (Un)scale flux by watershed area
+## (Un)scale flux by watershed area
 
 ```{r scale by watershed area}
 
 (kg_ha_d <- slice(NO3_N_flux, 1:3))
 (kg_d <- ms_undo_scale_flux_by_area(kg_ha_d))
 (kg_ha_d <- ms_scale_flux_by_area(kg_d))
-#NOTE: not every function set up to perform error computations
+#NOTE: not every function set up to perform error computations yet
 ```
 
-## Part 3: Useful tools
+# Part 3: Useful tools
 
-### Automated citation/acknowledgement for any subset of the MacroSheds dataset
+## Automated citation/acknowledgement for any subset of the MacroSheds dataset
 
-```{r attribution}
+```{r attribution, cache=TRUE}
 
 ?ms_generate_attribution
 
@@ -327,7 +331,7 @@ read_file('~/macrosheds_attribution_information/ms_bibliography.bib') %>%
     cat()
 ```
 
-### Watershed delineation
+## Watershed delineation
 
 (interactive, so output not included in the HTML version of this document)
 
@@ -351,13 +355,13 @@ out <- ms_delineate_watershed(
 str(out) #specifications of your successful delineation
 ```
 
-### Load spatial data
+## Load spatial data
 
 (watershed boundaries, precip gauge locations, stream gauge locations)
 
 ```{r spatial data}
 
-library(mapview)
+suppressPackageStartupMessages(library(mapview))
 
 ws_bound <- ms_load_spatial_product(project_root, 'ws_boundary', domain = 'boulder')
 prcp_gauges <- ms_load_spatial_product(project_root, 'stream_gauge_locations', domain = 'boulder')
@@ -366,7 +370,7 @@ strm_gauges <- ms_load_spatial_product(project_root, 'precip_gauge_locations', d
 mapview(ws_bound) + mapview(prcp_gauges) + mapview(strm_gauges, col.regions = rainbow(n = 3))
 ```
 
-### More vignettes
+## More vignettes
 
 Vignettes will only load if you installed `macrosheds` with `build_vignettes=TRUE`, but they're also hosted as markdown files [here](https://github.com/MacroSHEDS/macrosheds/tree/master/vignettes). These provide tutorials on data retrieval, flux calculation, watershed delineation, and precip interpolation.
 
