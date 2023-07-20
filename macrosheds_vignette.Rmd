@@ -28,7 +28,20 @@ devtools::install_github('https://github.com/MacroSHEDS/macrosheds.git')
 install.packages('tidyverse')
 ```
 
-These ones are optional (only used here and there, and the overall sequence doesn't depend on them)
+Then download the MacroSheds data we will use
+```{r dl, eval=FALSE}
+
+library(macrosheds)
+
+# this is where files will be downloaded. feel free to change it.
+project_root <- '~/macrosheds_workshop'
+
+# datasets we will use
+ms_download_ws_attr(project_root, dataset = 'summaries')
+ms_download_core_data(project_root, domains = c('niwot', 'plum', 'east_river', 'santee'))
+```
+
+These packages are optional (only used here and there, and the overall sequence doesn't depend on them)
 ```{r install optional, eval=FALSE}
 
 install.packages('xts')         # time series representation
@@ -101,7 +114,7 @@ ms_sites <- ms_load_sites() %>%
     filter(site_type == 'stream_gauge') #some precip gauges have the same names as stream gauges!
 
 ?ms_download_ws_attr
-ms_download_ws_attr(project_root, dataset = 'summaries')
+# ms_download_ws_attr(project_root, dataset = 'summaries')
 
 ?ms_load_product
 ws_smry <- ms_load_product(project_root, prodname = 'ws_attr_summaries')
@@ -205,7 +218,7 @@ get_shared_domain_vars(sitevars)
 ```{r retrieve2, cache=TRUE}
 
 ?ms_download_core_data
-ms_download_core_data(project_root, domains = elev_extreme_domains)
+# ms_download_core_data(project_root, domains = elev_extreme_domains)
 
 ?ms_load_product
 (doc <- ms_load_product(
