@@ -16,6 +16,33 @@ knitr::opts_chunk$set(echo = TRUE, comment = ' ')
 
 ---
 
+# Before the workshop
+
+Please install the following packages:
+```{r install, eval=FALSE}
+
+#macrosheds
+devtools::install_github('https://github.com/MacroSHEDS/macrosheds.git')
+
+#tidyverse (dplyr, stringr, readr, etc.)
+install.packages('tidyverse')
+```
+
+These ones are optional (only used here and there, and the overall sequence doesn't depend on them)
+```{r install optional, eval=FALSE}
+
+install.packages('xts')         # time series representation
+install.packages('dygraphs')    # interactive plots
+install.packages('factoextra')  # ordination, etc.
+install.packages('mapview')     # interactive maps
+install.packages('data.table')  # efficient computation
+install.packages('whitebox')    # geospatial processing
+whitebox::install_whitebox() #additional whitebox binaries. if this fails, use the next line
+# whitebox::install_whitebox(platform = 'linux_musl')
+```
+
+---
+
 # MacroSheds
 
 _*long-term watershed ecosystem studies, harmonized*_
@@ -57,10 +84,6 @@ _*long-term watershed ecosystem studies, harmonized*_
 + [CAMELS-Chem](https://hess.copernicus.org/preprints/hess-2022-81/) - chemistry for CAMELS-US
 
 # Part 1: Setup and overview
-
-```{r install, eval=FALSE}
-devtools::install_github('https://github.com/MacroSHEDS/macrosheds.git')
-```
 
 ```{r setup2}
 
