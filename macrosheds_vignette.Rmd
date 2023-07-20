@@ -7,7 +7,7 @@ output:
         toc: yes
         toc_float:
             collapsed: true
-        toc_depth: 4
+        toc_depth: 3
 ---
 
 ```{r setup1, include=FALSE}
@@ -16,7 +16,9 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ---
 
-## MacroSheds: long-term watershed ecosystem studies, harmonized
+## MacroSheds
+
+_*long-term watershed ecosystem studies, harmonized*_
 
 ### Goals
  + enable calculation of input/output solute fluxes from diverse watersheds
@@ -208,7 +210,7 @@ table(doc$ms_interp)
 
 ```{r ms_status}
 
-doc <- doc %>% 
+doc_wide <- doc %>% 
     filter(ms_status == 0) %>% #remove ms_status == 1 (questionable)
     select(datetime, site_code, val) %>% 
     left_join(select(ms_sites, site_code, domain), #join column of domain names
@@ -223,13 +225,13 @@ doc <- doc %>%
 library(xts)
 library(dygraphs)
 
-dmn_colors <- factor(str_split_fixed(colnames(doc)[-1], '__', n = 2)[, 1])
+dmn_colors <- factor(str_split_fixed(colnames(doc_wide)[-1], '__', n = 2)[, 1])
 levels(dmn_colors) <- hcl.colors(length(elev_extreme_domains))
 
-dg <- dygraph(xts(x = doc[, -1], order.by = doc$datetime)) %>% 
+dg <- dygraph(xts(x = doc_wide[, -1], order.by = doc_wide$datetime)) %>% 
     dyRangeSelector()
-for(i in 2:ncol(doc)){
-    dg <- dySeries(dg, colnames(doc)[i], color = as.character(dmn_colors[i - 1]))
+for(i in 2:ncol(doc_wide)){
+    dg <- dySeries(dg, colnames(doc_wide)[i], color = as.character(dmn_colors[i - 1]))
 }
 dg
 ```
@@ -271,37 +273,111 @@ NO3_N_flux <- ms_calc_flux(NO3_N_conc, Q, q_type = 'discharge')
 filter(NO3_N_flux, datetime == as.POSIXct('1985-05-09 00:00:00', tz = 'UTC'), site_code == 'ALBION')
 ```
 
-### Compute annual nitrate-N load (still in beta)
+### Compute annual nitrate-N load (still in development)
 
-```{r load calc}
+```{r load calc, eval=FALSE}
 
-# `:::` is used to call internal package functions. this function will be
-# officially included in the macrosheds package when we release version 2 of
-# the MacroSheds dataset, which will include monthly and yearly load estimates
-# based on Gubbins et al. in prep
-NO3_N_load <- macrosheds:::ms_calc_flux_rsfme(NO3_N_conc, Q, 
+# this function will be officially included in the macrosheds package when we
+# release version 2 of the MacroSheds dataset, which will include monthly and
+# yearly load estimates based on Gubbins et al. in prep. For now, you can call it
+# with `:::`, which accesses "internal" package functions.
+NO3_N_load <- macrosheds:::ms_calc_flux_rsfme(
+    NO3_N_conc, Q,
+    method = 'beale',
+    aggregation = 'annual'
+)
 ```
 
-THEN SHOW HOW TO CONVERT TO FLUX
-DO AGAIN WITH FLUX
+### WRTDS flux via EGRET package
 
-PRECIP AND STREAM
-WATERSHED DELINEATION?
-CALC WATERSHED PRECIP?
-ATTRIBUTION
-RUN EGRET?
-SCALE FLUX BY AREA
-SEPARATE BASEFLOW
-SYNCHRONIZE TIMESTEP?
+```{r wrtds, eval=FALSE}
 
-```{r retrieve2}
-# ms_download_core_data()
-# ms_load_product()
-# macrosheds::ms_load_spatial_product()
+ms_run_egret(stream_chemistry = filter(NO3_N_conc, site_code == 'ALBION'),
+             discharge = filter(Q, site_code == 'ALBION'))
 ```
 
-site_attrs <- sites %>%
-    filter(site_type == 'stream_gauge') %>%
-    select(site_code, ) %>%
-    left_join(ws_smry, by = c('network', 'domain', 'site_code'))
+### (Un)scale flux by watershed area
 
+```{r scale by watershed area}
+
+(kg_ha_d <- slice(NO3_N_flux, 1:3))
+(kg_d <- ms_undo_scale_flux_by_area(kg_ha_d))
+(kg_ha_d <- ms_scale_flux_by_area(kg_d))
+#NOTE: not every function set up to perform error computations
+```
+
+## Part 3: Useful tools
+
+### Automated citation/acknowledgement for any subset of the MacroSheds dataset
+
+```{r attribution}
+
+?ms_generate_attribution
+
+attrib <- ms_generate_attribution(doc, chem_source = 'stream')
+
+ls.str(attrib)
+attrib$intellectual_rights_notifications
+attrib$intellectual_rights_explanations
+t(attrib$full_details_timeseries[1, ])
+
+attrib <- ms_generate_attribution(doc, chem_source = 'stream', write_to_dir = '~')
+read_file('~/macrosheds_attribution_information/ms_bibliography.bib') %>% 
+    substr(1, 1092) %>% 
+    cat()
+```
+
+### Watershed delineation
+
+(interactive, so output not included in the HTML version of this document)
+
+*can work where StreamStats fails, especially in small watersheds*
+
+```{r watershed delineation, eval=FALSE}
+
+whitebox::install_whitebox() #if this fails, use the next line
+# whitebox::install_whitebox(platform = 'linux_musl')
+
+tmp <- tempdir()
+
+out <- ms_delineate_watershed(
+    lat = 44.21013,
+    long = -122.2571,
+    crs = 4326,
+    write_dir = tmp,
+    write_name = 'example_site',
+)
+
+str(out) #specifications of your successful delineation
+```
+
+### Load spatial data
+
+(watershed boundaries, precip gauge locations, stream gauge locations)
+
+```{r spatial data}
+
+library(mapview)
+
+ws_bound <- ms_load_spatial_product(project_root, 'ws_boundary', domain = 'boulder')
+prcp_gauges <- ms_load_spatial_product(project_root, 'stream_gauge_locations', domain = 'boulder')
+strm_gauges <- ms_load_spatial_product(project_root, 'precip_gauge_locations', domain = 'boulder')
+
+mapview(ws_bound) + mapview(prcp_gauges) + mapview(strm_gauges, col.regions = rainbow(n = 3))
+```
+
+### More vignettes
+
+Vignettes will only load if you installed `macrosheds` with `build_vignettes=TRUE`, but they're also hosted as markdown files [here](https://github.com/MacroSHEDS/macrosheds/tree/master/vignettes). These provide tutorials on data retrieval, flux calculation, watershed delineation, and precip interpolation.
+
+```{r more vignettes, eval=FALSE}
+vignette(package = 'macrosheds')
+vignette('ms_watershed_delineation', package = 'macrosheds')
+```
+
+```{r other tools}
+
+?ms_synchronize_timestep  # upsample or downsample macrosheds data
+?ms_calc_watershed_precip # spatial interpolation of precip gauge data
+?ms_separate_baseflow     # baseflow/stormflow separation via hydrostats
+```
