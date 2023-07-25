@@ -39,6 +39,7 @@ project_root <- '~/macrosheds_workshop'
 # datasets we will use
 ms_download_ws_attr(project_root, dataset = 'summaries')
 ms_download_core_data(project_root, domains = c('niwot', 'plum', 'east_river', 'santee'))
+
 ```
 
 These packages are optional (only used here and there, and the overall sequence doesn't depend on them)
@@ -420,4 +421,104 @@ vignette('ms_watershed_delineation', package = 'macrosheds')
 ?ms_synchronize_timestep  # upsample or downsample macrosheds data
 ?ms_calc_watershed_precip # spatial interpolation of precip gauge data
 ?ms_separate_baseflow     # baseflow/stormflow separation via hydrostats
+```
+
+# Part 4: linking to the CAMELS datasets
+
+## Download CAMELS-US (partly)
+
+```{r camels}
+
+camels_dir <- file.path(project_root, 'camels')
+dir.create(camels_dir)
+
+attr_categories <- c('clim', 'geol', 'soil', 'topo', 'vege', 'hydro')
+
+#watershed attributes
+for(x in attr_categories){
+    download.file(paste0('https://gdex.ucar.edu/dataset/camels/file/camels_', x, '.txt'),
+                  destfile = paste0(camels_dir, '/', x, '.txt'))
+}
+
+# #Daymet forcings
+# download.file('https://gdex.ucar.edu/dataset/camels/file/basin_timeseries_v1p2_modelOutput_daymet.zip',
+#               destfile = file.path(camels_dir, 'daymet.zip'))
+# 
+# #observed flow
+# download.file('https://gdex.ucar.edu/dataset/camels/file/basin_timeseries_v1p2_metForcing_obsFlow.zip',
+#               destfile = file.path(camels_dir, 'flow.zip'))
+```
+
+```{r camels view}
+
+# library(plotly)
+
+view_camels_attr <- function(path_to_camels){
+
+    char_cols <- c('dom_land_cover', 'geol_1st_class', 'geol_2nd_class',
+                   'high_prec_timing', 'low_prec_timing')
+    
+    vege <- read_csv2(file.path(path_to_camels, 'vege.txt'))
+    topo <- read_csv2(file.path(path_to_camels, 'topo.txt'))
+    geol <- read_csv2(file.path(path_to_camels, 'geol.txt'))
+    soil <- read_csv2(file.path(path_to_camels, 'soil.txt'))
+    clim <- read_csv2(file.path(path_to_camels, 'clim.txt'))
+    hydro <- read_csv2(file.path(path_to_camels, 'hydro.txt'))
+    
+    col_categories <- c(rep('vege', ncol(vege) - 1),
+                        rep('topo', ncol(topo) - 1),
+                        rep('geol', ncol(geol) - 1),
+                        rep('soil', ncol(soil) - 1),
+                        rep('clim', ncol(clim) - 1),
+                        rep('hydr', ncol(hydro) - 1))
+        
+    category_colors <- c('vege' = 'forestgreen',
+                         'topo' = 'black',
+                         'geol' = 'gray40',
+                         'soil' = 'orange4',
+                         'clim' = 'darkblue',
+                         'hydr' = 'turquoise3')
+    
+    d <- bind_rows(vege, topo, geol, soil, clim, hydro)
+    
+    facet_dims <- ceiling(sqrt(length(col_categories)))
+    par(mfrow = c(facet_dims, facet_dims))
+    
+    for(i in 2:ncol(d)){
+        
+        
+    # d <- attr_categories %>% 
+    #     map_dfr(function(x) read_csv2(paste0(path_to_camels, '/', x, '.txt'))) %>% 
+    #     select(gauge_id, !!varx, !!vary)
+    
+    # plt <- plot_ly(
+    #           x = ~ get(varx),
+    #             y = ~ get(y_tvar),
+    #             size = ~ get(size_tvar),
+    #             color = ~ get(col_by),
+    #             colors = safe_cols,
+    #             frame = ~Date,
+    #             type = "scatter",
+    #             mode = "markers",
+    #             text = ~ paste0(size_var, " ", size_unit, ":", get(size_var))
+    #         ) %>%
+    #         plotly::layout(
+    #             xaxis = list(title = paste0(x_var, " ", x_unit)),
+    #             yaxis = list(title = paste0(y_var, " ", y_unit)),
+    #             paper_bgcolor = "rgba(0,0,0,0)",
+    #             plot_bgcolor = "rgba(0,0,0,0)"
+    #         )
+
+}
+```
+
+```{r camels supplement}
+ms_download_ws_attr(project_root, dataset = 'CAMELS summaries')
+ms_cmls <- ms_load_product(project_root, prodname = 'ws_attr_CAMELS_summaries')
+
+apply(ms_cmls, MARGIN = 2, function(x) round(sum(! is.na(x)) / length(x), 2))
+```
+
+```{r camels view 2}
+
 ```
