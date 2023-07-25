@@ -104,6 +104,10 @@ _*long-term watershed ecosystem studies, harmonized*_
 suppressPackageStartupMessages(library(tidyverse))
 library(macrosheds)
 
+options(readr.show_progress = FALSE,   #prevent gratuitous printing from read_csv
+        readr.show_col_types = FALSE,  #same
+        timeout = 600)                 #allow more time for dataset downloads
+
 project_root <- '~/macrosheds_workshop'
 ```
 
@@ -376,7 +380,7 @@ read_file('~/macrosheds_attribution_information/ms_bibliography.bib') %>%
 
 ```{r watershed delineation, eval=FALSE}
 
-whitebox::install_whitebox() #if this fails, use the next line
+# whitebox::install_whitebox() #if this fails, use the next line
 # whitebox::install_whitebox(platform = 'linux_musl')
 
 tmp <- tempdir()
@@ -388,6 +392,8 @@ out <- ms_delineate_watershed(
     write_dir = tmp,
     write_name = 'example_site',
 )
+
+select <- dplyr::select #resolve namespace conflict introduced by raster package
 
 str(out) #specifications of your successful delineation
 ```
@@ -425,12 +431,13 @@ vignette('ms_watershed_delineation', package = 'macrosheds')
 
 # Part 4: linking to the CAMELS datasets
 
-## Download CAMELS-US (partly)
+## Download CAMELS-US
+*(just watershed descriptors and streamflow time series)*
 
 ```{r camels}
 
 camels_dir <- file.path(project_root, 'camels')
-dir.create(camels_dir)
+dir.create(camels_dir, showWarnings = FALSE)
 
 attr_categories <- c('clim', 'geol', 'soil', 'topo', 'vege', 'hydro')
 
@@ -443,82 +450,172 @@ for(x in attr_categories){
 # #Daymet forcings
 # download.file('https://gdex.ucar.edu/dataset/camels/file/basin_timeseries_v1p2_modelOutput_daymet.zip',
 #               destfile = file.path(camels_dir, 'daymet.zip'))
-# 
-# #observed flow
+
+#observed flow
 # download.file('https://gdex.ucar.edu/dataset/camels/file/basin_timeseries_v1p2_metForcing_obsFlow.zip',
 #               destfile = file.path(camels_dir, 'flow.zip'))
+# unzip(file.path(camels_dir, 'flow.zip')) #untested. be aware of the truncation issue described in ?unzip
 ```
 
-```{r camels view}
+## Visualize CAMELS
 
-# library(plotly)
+```{r camels view, fig.width = 14, fig.height = 14}
 
-view_camels_attr <- function(path_to_camels){
+view_attr_dists <- function(path_to_camels){
 
     char_cols <- c('dom_land_cover', 'geol_1st_class', 'geol_2nd_class',
                    'high_prec_timing', 'low_prec_timing')
     
-    vege <- read_csv2(file.path(path_to_camels, 'vege.txt'))
-    topo <- read_csv2(file.path(path_to_camels, 'topo.txt'))
-    geol <- read_csv2(file.path(path_to_camels, 'geol.txt'))
-    soil <- read_csv2(file.path(path_to_camels, 'soil.txt'))
-    clim <- read_csv2(file.path(path_to_camels, 'clim.txt'))
-    hydro <- read_csv2(file.path(path_to_camels, 'hydro.txt'))
+    vege <- read_delim(file.path(path_to_camels, 'vege.txt'), delim = ';')
+    topo <- read_delim(file.path(path_to_camels, 'topo.txt'), delim = ';')
+    geol <- read_delim(file.path(path_to_camels, 'geol.txt'), delim = ';')
+    soil <- read_delim(file.path(path_to_camels, 'soil.txt'), delim = ';')
+    clim <- read_delim(file.path(path_to_camels, 'clim.txt'), delim = ';')
+    hydro <- read_delim(file.path(path_to_camels, 'hydro.txt'), delim = ';')
+
+    categories <- c(rep('vege', ncol(vege) - 1),
+                    rep('topo', ncol(topo) - 1),
+                    rep('geol', ncol(geol) - 1),
+                    rep('soil', ncol(soil) - 1),
+                    rep('clim', ncol(clim) - 1),
+                    rep('hydr', ncol(hydro) - 1))
     
-    col_categories <- c(rep('vege', ncol(vege) - 1),
-                        rep('topo', ncol(topo) - 1),
-                        rep('geol', ncol(geol) - 1),
-                        rep('soil', ncol(soil) - 1),
-                        rep('clim', ncol(clim) - 1),
-                        rep('hydr', ncol(hydro) - 1))
+    d <- reduce(list(vege, topo, geol, soil, clim, hydro), full_join, by = 'gauge_id') %>% 
+        # select(-matches(!!char_cols)) %>% 
+        mutate(across(-c(gauge_id, !!char_cols), as.numeric))
         
     category_colors <- c('vege' = 'forestgreen',
                          'topo' = 'black',
-                         'geol' = 'gray40',
+                         'geol' = 'gray50',
                          'soil' = 'orange4',
                          'clim' = 'darkblue',
                          'hydr' = 'turquoise3')
     
-    d <- bind_rows(vege, topo, geol, soil, clim, hydro)
+    nrows <- ceiling(sqrt(length(categories)))
+    par(mfrow = c(nrows, length(categories) / nrows),
+        mar = c(1, 2, 0, 0), oma = rep(0.5, 4))
     
-    facet_dims <- ceiling(sqrt(length(col_categories)))
-    par(mfrow = c(facet_dims, facet_dims))
+    plot(1, 1, type = 'n')
+    legend('left', legend = names(category_colors), col = unname(category_colors),
+           lty = 1, lwd = 3, bty = 'n')
+    legend('right', legend = c('CAMELS', 'MacroSheds'),
+           fill = c('gray70', 'darkviolet'), bty = 'n', border = NA)
     
     for(i in 2:ncol(d)){
         
-        
-    # d <- attr_categories %>% 
-    #     map_dfr(function(x) read_csv2(paste0(path_to_camels, '/', x, '.txt'))) %>% 
-    #     select(gauge_id, !!varx, !!vary)
-    
-    # plt <- plot_ly(
-    #           x = ~ get(varx),
-    #             y = ~ get(y_tvar),
-    #             size = ~ get(size_tvar),
-    #             color = ~ get(col_by),
-    #             colors = safe_cols,
-    #             frame = ~Date,
-    #             type = "scatter",
-    #             mode = "markers",
-    #             text = ~ paste0(size_var, " ", size_unit, ":", get(size_var))
-    #         ) %>%
-    #         plotly::layout(
-    #             xaxis = list(title = paste0(x_var, " ", x_unit)),
-    #             yaxis = list(title = paste0(y_var, " ", y_unit)),
-    #             paper_bgcolor = "rgba(0,0,0,0)",
-    #             plot_bgcolor = "rgba(0,0,0,0)"
-    #         )
-
+        varname <- colnames(d)[i]
+        if(! varname %in% char_cols){
+            
+            dvar <- d %>% 
+                select(gauge_id, !!varname) %>% 
+                filter(! is.na(!!varname)) %>% 
+                arrange(!!sym(varname))
+            
+            source_color <- if_else(grepl('^[0-9]{6,}$', dvar$gauge_id), 'gray70', 'darkviolet')
+            color <- category_colors[categories[i - 1]]
+            # color <- category_colors[names(category_colors) == categories[i - 1]]
+            
+            barplot(dvar[[varname]], col = source_color, border = source_color)
+            box(col = color, lwd = 4)
+            mtext(varname, 3, line = -1.5, col = 'black')
+        }
+    }
 }
+
+view_q_dists <- function(path_to_camels){
+    
+    flowdir <- file.path(path_to_camels, 'basin_dataset_public_v1p2/usgs_streamflow')
+    flowfiles <- list.files(flowdir, recursive = TRUE, pattern = 'streamflow_qc\\.txt$',
+                            full.names = TRUE)
+    
+    par(mfrow = c(1, 1), mar = c(2, 4, 1, 1))
+    plot(as.Date(c('1930-01-01', '2023-07-30')), log(c(0.001, 1e6)), type = 'n',
+         xlab = '', ylab = 'Log discharge (cfs)', yaxt = 'n')
+    yaxis <- c(0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000, 1e5, 1e6)
+    axis(2, log(yaxis), labels = as.character(yaxis))
+    
+    for(f in flowfiles){
+        
+        flow <- read.fwf(
+            f,
+            widths = c(9, 4, 3, 3, 9, 2),
+            header = FALSE,
+            strip.white = TRUE,
+            colClasses = 'character',
+            col.names = c('gauge_id', 'year', 'month', 'day', 'Q_cfs', 'flag')
+        ) %>%
+            as_tibble() %>%
+            mutate(date = as.Date(paste(year, month, day), format = '%Y %m %d'),
+                   Q_cfs = log(as.numeric(Q_cfs))) %>%
+            mutate(Q_cfs = if_else(Q_cfs == -999, NA_real_, Q_cfs))
+        
+        lines(flow$date, flow$Q_cfs, col = adjustcolor('black', alpha.f = 0.3))
+        
+                   #      mm/d        cfs         m^3/ft^3      mm/m   s/d     m^2
+                   # discharge = discharge * 0.028316846 * 1000 * 86400 / ws_area_m2)
+    }
+}
+
+view_attr_dists(camels_dir)
 ```
+
+## Merge MacroSheds and CAMELS
 
 ```{r camels supplement}
-ms_download_ws_attr(project_root, dataset = 'CAMELS summaries')
-ms_cmls <- ms_load_product(project_root, prodname = 'ws_attr_CAMELS_summaries')
 
+ms_download_ws_attr(project_root, dataset = 'CAMELS summaries')
+ms_cmls <- ms_load_product(project_root, prodname = 'ws_attr_CAMELS_summaries') %>% 
+    rename(geol_porostiy = geol_porosity, #accommodate typo in CAMELS dataset
+           q5 = Q5, q95 = Q95, baseflow_index = baseflow_index_landson) #and some slight name differences
+
+#proportion of missing values per column
 apply(ms_cmls, MARGIN = 2, function(x) round(sum(! is.na(x)) / length(x), 2))
+
+camels_ms_dir <- file.path(project_root, 'camels_macrosheds_merge')
+dir.create(camels_ms_dir, showWarnings = FALSE)
+
+cmls_topo <- read_delim(file.path(camels_dir, 'topo.txt'), delim = ';') %>% 
+    rename(area = area_gages2) %>% #could also use area_geospa_fabric here
+    mutate(across(everything(), as.character))
+    
+ms_cmls %>% 
+    select(gauge_id = site_code, matches(colnames(cmls_topo)), 'area') %>%
+    mutate(across(everything(), as.character)) %>% 
+    bind_rows(cmls_topo) %>% 
+    write_delim(file.path(camels_ms_dir, 'topo.txt'), delim = ';')
+
+camels_ms_merge <- function(dataset, read_dir, write_dir){
+    
+    #dataset: character; one of "vege", "topo", "soil", "geol", "hydro", "clim"
+    
+    cmls_d <- read_delim(paste0(read_dir, '/', dataset, '.txt'), delim = ';') %>% 
+        mutate(across(everything(), as.character))
+    
+    missing_vars <- setdiff(colnames(cmls_d), colnames(ms_cmls)) %>% 
+        str_subset('gauge_id', negate = TRUE)
+    
+    if(length(missing_vars)){
+        print(paste('MacroSheds is missing some CAMELS variables:',
+                    paste(missing_vars, collapse = ', ')))
+    }
+    
+    ms_cmls %>% 
+        select(gauge_id = site_code, matches(colnames(cmls_d))) %>%
+        mutate(across(everything(), as.character)) %>% 
+        bind_rows(cmls_d) %>% 
+        write_delim(paste0(write_dir, '/', dataset, '.txt'), delim = ';')
+}
+
+camels_ms_merge('vege', read_dir = camels_dir, write_dir = camels_ms_dir)
+camels_ms_merge('geol', read_dir = camels_dir, write_dir = camels_ms_dir)
+camels_ms_merge('soil', read_dir = camels_dir, write_dir = camels_ms_dir)
+camels_ms_merge('clim', read_dir = camels_dir, write_dir = camels_ms_dir)
+camels_ms_merge('hydro', read_dir = camels_dir, write_dir = camels_ms_dir)
 ```
 
-```{r camels view 2}
+## Visualize again
 
+```{r camels view 2, fig.width = 14, fig.height = 14}
+
+view_attr_dists(camels_ms_dir)
 ```
