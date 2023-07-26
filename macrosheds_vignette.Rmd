@@ -47,6 +47,7 @@ These packages are optional (only used here and there, and the overall sequence 
 
 install.packages('xts')         # time series representation
 install.packages('dygraphs')    # interactive plots
+install.packages('viridis')     # colorblind-friendly color palettes
 install.packages('factoextra')  # ordination, etc.
 install.packages('mapview')     # interactive maps
 install.packages('data.table')  # efficient computation
@@ -118,6 +119,8 @@ project_root <- '~/macrosheds_workshop'
 ms_sites <- ms_load_sites() %>% 
     filter(site_type == 'stream_gauge') #some precip gauges have the same names as stream gauges!
 
+ms_ts_variables <- ms_load_variables(var_set = 'timeseries')
+
 ?ms_download_ws_attr
 # ms_download_ws_attr(project_root, dataset = 'summaries')
 
@@ -127,6 +130,49 @@ ws_smry <- ms_load_product(project_root, prodname = 'ws_attr_summaries')
 
  + watershed summary attribute definitions: [https://portal.edirepository.org/nis/metadataviewer?packageid=edi.1262.1] -> Data Entities -> `ws_attr_summaries.csv`
  + two-letter variable prefixes: `variable_category_codes_ws_attr.csv`, `variable_data_source_codes_ws_attr.csv`
+
+## Visualize distributions of MacroSheds watershed attributes
+
+```{r view ms attrs, echo=FALSE, fig.width=16, fig.height=16}
+
+categories <- colnames(ws_smry)[-(1:4)] %>% 
+    substr(1, 1) %>% 
+    factor()
+levels(categories) <- c('clim', 'hydr', 'land', 'pmat', 'terr', 'vege')
+categories <- as.character(categories)
+
+category_colors <- c('vege' = 'forestgreen',
+                     'terr' = 'black',
+                     'pmat' = 'gray50',
+                     'land' = 'orange4',
+                     'clim' = 'darkblue',
+                     'hydr' = 'turquoise3')
+
+defpar <- par(mfrow = c(7, 7), mar = c(1, 2, 0, 0), oma = rep(0.5, 4))
+
+plot(1, 1, type = 'n', axes = F)
+legend('center', legend = names(category_colors), col = unname(category_colors),
+       lty = 1, lwd = 3, bty = 'n', cex = 1.5)
+
+for(i in 5:ncol(ws_smry)){
+    
+    varname <- colnames(ws_smry)[i]
+    
+    dvar <- ws_smry %>% 
+        select(site_code, !!varname) %>% 
+        na.omit() %>% 
+        filter(! is.na(!!varname)) %>% 
+        arrange(!!sym(varname))
+    
+    color <- category_colors[categories[i - 4]]
+    
+    barplot(dvar[[varname]], col = 'gray60', border = 'gray60')
+    box(col = color, lwd = 4)
+    mtext(varname, 3, line = -1.5, col = 'black')
+}
+
+par(defpar)
+```
 
 ## Principal component analysis of watershed summary attributes
 
@@ -249,7 +295,171 @@ table(doc$ms_interp)
 
 # Part 2: Which variables best predict DOC at high and low elevation sites?
 
-## remove questionable observations; plot time series
+## ...
+
+```{r view discharge series}
+
+library(viridis)
+
+plot_q <- function(ms_root, domain){
+
+    q <- ms_load_product(ms_root, prodname = 'discharge', domains = domain)
+    
+    current_year <- as.numeric(strftime(Sys.Date(), format = '%Y'))
+    earliest_year <- as.numeric(strftime(min(q$datetime), format = '%Y'))
+    nyears <- current_year - earliest_year
+    yrcols <- viridis(n = nyears)
+
+    sites <- unique(q$site_code)
+
+    plotrc <- ceiling(sqrt(length(sites)))
+    doyseq <- seq(1, 366, 30)
+    par(mfrow = c(plotrc, plotrc), mar = c(1, 2, 0, 0), oma = c(0, 0, 2, 0))
+
+    for(s in sites){
+
+        plot(NA, NA, xlim = c(1, 366), ylim = c(0, nyears), xaxs = 'i', yaxs = 'i',
+             ylab = '', xlab = '', yaxt = 'n', cex.axis = 0.6, xaxt = 'n', xpd = NA)
+        axis(1, doyseq, doyseq, tick = FALSE, line = -2, cex.axis = 0.8)
+        axis(2, 1:nyears, earliest_year:(current_year - 1), las = 2, cex.axis = 0.6,
+             hadj = 0.7)
+
+        qsub <- q %>%
+            filter(domain == domain, site_code == s) %>%
+            mutate(doy = as.numeric(strftime(datetime, format = '%j', tz = 'UTC')),
+                   yr_offset = lubridate::year(datetime) - earliest_year)
+
+        lubridate::year(qsub$datetime) <- 1972
+        yrs <- unique(qsub$yr_offset)
+
+        for(i in 1:length(yrs)){
+            qss <- qsub %>%
+                filter(yr_offset == yrs[i]) %>%
+                arrange(doy)
+            lines(qss$doy, c(scale(qss$val)) + qss$yr_offset, col = yrcols[i])
+        }
+
+        mtext(s, 3, outer = FALSE, line = -2)
+    }
+
+    mtext(paste0(domain, ' (DOY vs. Year)'), 3, outer = TRUE)
+}
+
+plot_q(project_root, 'boulder')
+# plot_q(project_root, 'fernow')
+plot_q(project_root, 'baltimore')
+# plot_q(project_root, 'hjandrews')
+```
+
+```{r view solute distributions, fig.width = 11, fig.height = 9}
+
+plot_conc <- function(ms_root, chemvar){
+    
+    unit <- ms_ts_variables %>% 
+        filter(variable_code == !!chemvar,
+               chem_category == 'stream_conc') %>%
+        pull(unit)
+    
+    d <- ms_load_product(ms_root,
+                         prodname = 'stream_chemistry',
+                         filter_vars = chemvar,
+                         warn = FALSE)
+    
+    ms_sites <- ms_load_sites() %>% 
+        filter(site_type != 'precip_gauge')
+    
+    d <- ms_sites %>% 
+        select(site_code, domain, network) %>% 
+        right_join(d, by = 'site_code')
+    
+    domains <- na.omit(unique(d$domain))
+    
+    dmncolors <- c('brown4', 'brown1', 'blueviolet', 'blue4', 'dodgerblue3', 'blanchedalmond',
+              'bisque4', 'khaki1', 'gray70', 'gray25', 'aquamarine4',
+              'darkorange2', 'darkolivegreen4', 'darkolivegreen1', 'darkmagenta',
+              'darkgoldenrod1', 'cyan3', 'deeppink',
+              'darkred', 'green1', 'palevioletred4', 'peru', 'yellow', 'springgreen2',
+              'mediumorchid3', 'white', 'skyblue', 'burlywood4', 'cornflowerblue')
+    dmncolors <- dmncolors[1:length(domains)]
+    
+    log_ticks <- c(0.001, 0.01, 0.1, 1, 10, 100, 1000, 10000, 100000)
+    
+    d_by_max <- d %>%
+        filter(! is.na(val)) %>%
+        group_by(network, domain, site_code) %>%
+        summarize(maxval = max(val, na.rm = TRUE),
+                  medianval = median(val, na.rm = TRUE),
+                  n = n(),
+                  .groups = 'drop') %>%
+        mutate(ntw_dmn_sit = paste(network, domain, site_code,
+                                   sep = ' > ')) %>%
+        filter(n > 30)
+    
+    site_order <- d_by_max$ntw_dmn_sit[order(d_by_max$medianval)]
+    
+    sites_with_data <- d_by_max$site_code
+    
+    d_boxplot <- d %>%
+        filter(site_code %in% !!sites_with_data) %>%
+        group_by(network, domain, site_code) %>%
+        summarize(box_stats = list(boxplot.stats(val)),
+                  .groups = 'drop') %>%
+        mutate(color = dmncolors[match(domain, domains)],
+               ntw_dmn_sit = paste(network, domain, site_code,
+                                   sep = ' > '))
+    
+    included_domain_inds <- which(domains %in% unique(d_by_max$domain))
+    excluded_domains <- domains[-included_domain_inds]
+    included_domains <- domains[included_domain_inds]
+    included_dmncolors <- dmncolors[included_domain_inds]
+    
+    d_boxplot <- d_boxplot[rev(order(match(d_boxplot$ntw_dmn_sit, site_order))), ]
+    
+    nsites <- nrow(d_boxplot)
+    ylims <- range(d$val, na.rm = TRUE)
+    ylims[ylims == 0] <- 0.001
+    ylims <- log(ylims)
+    plot(1:nsites, rep(0, nsites), ylim = ylims, type = 'n', yaxt = 'n',
+         ylab = paste0('log ', sub('_', '-', chemvar), ' (', unit, ')'),
+         xlab = '', xaxt = 'n', yaxs = 'i',
+         main = paste(chemvar, 'distribution across sites'), xlim = c(1, nsites))
+    axis(2, at = log(log_ticks), labels = log_ticks)
+    corners = par("usr")
+    rect(corners[1], corners[3], corners[2], corners[4], col = 'black')
+    
+    for(j in 1:nsites){
+        color <- slice(d_boxplot, j) %>% pull(color)
+        stats <- (slice(d_boxplot, j) %>% pull(box_stats))[[1]]
+        outliers <- log(stats$out)
+        box_whisk <- log(stats$stats)
+        segments(x0 = j, x1 = j, y0 = box_whisk[1], y1 = box_whisk[2],
+                 col = color, lwd = 2, lend = 3)
+        points(x = j, y = box_whisk[3], col = color, pch = 20)
+        segments(x0 = j, x1 = j, y0 = box_whisk[4], y1 = box_whisk[5],
+                 col = color, lwd = 2, lend = 3)
+        points(x = rep(j, length(outliers)), y = outliers, col = color,
+               pch = 20, cex = 0.2)
+    }
+    
+    legend('topright', legend = included_domains, lty = 1,
+           col = included_dmncolors, bty = 'n', lwd = 3,
+           text.col = 'white', ncol = ceiling(length(included_domains) / 7))
+    # newline_seq <- try(seq(6, length(excluded_domains), 6), silent=TRUE)
+    # if(! inherits(newline_seq, 'try-error')){
+    #     excluded_domains[newline_seq] = paste0('\n', excluded_domains[newline_seq])
+    # }
+    text(x = quantile(1:nsites, 0.15),
+         y = quantile(ylims, 0.95), adj = 0, col = 'green',
+         labels = paste0('Sites: ', length(unique(d_boxplot$ntw_dmn_sit))))
+}
+
+#note that Mike ran these with all domains downloaded
+plot_conc(project_root, 'NO3_N') #nitrate-as-nitrogen
+plot_conc(project_root, 'DOC')
+plot_conc(project_root, 'SO4_S') #sulfate-as-sulfur
+```
+
+## remove questionable observations; plot time series of interest
 
 ```{r ms_status}
 
@@ -434,7 +644,7 @@ vignette('ms_watershed_delineation', package = 'macrosheds')
 ## Download CAMELS-US
 *(just watershed descriptors and streamflow time series)*
 
-```{r camels}
+```{r camels, cache=TRUE}
 
 camels_dir <- file.path(project_root, 'camels')
 dir.create(camels_dir, showWarnings = FALSE)
@@ -495,7 +705,7 @@ view_attr_dists <- function(path_to_camels){
     par(mfrow = c(nrows, length(categories) / nrows),
         mar = c(1, 2, 0, 0), oma = rep(0.5, 4))
     
-    plot(1, 1, type = 'n')
+    plot(1, 1, type = 'n', axes = F)
     legend('left', legend = names(category_colors), col = unname(category_colors),
            lty = 1, lwd = 3, bty = 'n')
     legend('right', legend = c('CAMELS', 'MacroSheds'),
