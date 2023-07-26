@@ -75,6 +75,7 @@ _*long-term watershed ecosystem studies, harmonized*_
  + [macrosheds.org](https://macrosheds.org)
  + [The dataset](https://portal.edirepository.org/nis/mapbrowse?scope=edi&identifier=1262)
  + [R package](https://github.com/MacroSHEDS/macrosheds)
+ + [data paper](https://aslopubs.onlinelibrary.wiley.com/doi/full/10.1002/lol2.10325)
  + [All project code](https://github.com/MacroSHEDS)
  
 ## Terms
@@ -119,6 +120,7 @@ project_root <- '~/macrosheds_workshop'
 ms_sites <- ms_load_sites() %>% 
     filter(site_type == 'stream_gauge') #some precip gauges have the same names as stream gauges!
 
+?ms_load_variables
 ms_ts_variables <- ms_load_variables(var_set = 'timeseries')
 
 ?ms_download_ws_attr
@@ -227,7 +229,6 @@ elev_extreme_domains <- ws_smry %>%
 
 ```{r filter1}
 
-?ms_load_variables
 sitevars <- ms_load_variables('timeseries_by_site')
 
 sitevars <- filter(sitevars,
