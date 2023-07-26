@@ -496,6 +496,7 @@ dg
 ## Which watershed attributes predict temporal variation in DOC concentration
 
 ```{r regression}
+
 #compute CV for each site
 #join ws attrs
 #glmnet
@@ -503,7 +504,8 @@ dg
 
 ## Convert nitrate-N concentration to daily flux (basic mode)
 
-```{r flux conversion}
+```{r flux calculation}
+
 NO3_N_conc <- ms_load_product(
     project_root,
     prodname = 'stream_chemistry',
@@ -522,14 +524,18 @@ Q <- ms_load_product(
 NO3_N_conc <- semi_join(NO3_N_conc, Q, by = 'site_code')
 
 #before
-filter(NO3_N_conc, datetime == as.POSIXct('1985-05-09 00:00:00', tz = 'UTC'), site_code == 'ALBION')
+filter(NO3_N_conc,
+       datetime == as.POSIXct('1985-05-09 00:00:00', tz = 'UTC'),
+       site_code == 'ALBION')
 
 NO3_N_flux <- suppressPackageStartupMessages({
     ms_calc_flux(NO3_N_conc, Q, q_type = 'discharge')
 })
 
 #after
-filter(NO3_N_flux, datetime == as.POSIXct('1985-05-09 00:00:00', tz = 'UTC'), site_code == 'ALBION')
+filter(NO3_N_flux,
+       datetime == as.POSIXct('1985-05-09 00:00:00', tz = 'UTC'),
+       site_code == 'ALBION')
 ```
 
 ## Compute annual nitrate-N load (still in development)
@@ -547,12 +553,36 @@ NO3_N_load <- macrosheds:::ms_calc_flux_rsfme(
 )
 ```
 
-## WRTDS flux via EGRET package
+## WRTDS load via EGRET package
 
 ```{r wrtds, eval=FALSE}
 
 ms_run_egret(stream_chemistry = filter(NO3_N_conc, site_code == 'ALBION'),
              discharge = filter(Q, site_code == 'ALBION'))
+```
+
+## Basic method (just add up daily flux)
+
+```{r basic annual load}
+
+library(imputeTS)
+
+siteyears_keep <- NO3_N_flux %>% 
+    group_by(site_code, year = strftime(datetime, format = '%Y')) %>%
+    summarize(n = length(na.omit(val))) %>% 
+    filter(n > 365.25 * 0.5)
+
+NO3_N_flux_interp <- NO3_N_flux %>% 
+    filter(site_code == 'ALBION',
+           datetime >= as.Date('1996-01-01'),
+           datetime <= as.Date('2000-12-31')) %>% 
+    arrange(datetime) %>% 
+    complete(datetime = seq(first(datetime), last(datetime), by = 'day')) %>% 
+    mutate(val = na_interpolation(val))
+
+NO3_N_flux_interp %>% 
+    group_by(year = strftime(datetime, format = '%Y')) %>% 
+    summarize(load_kg_ha = sum(val))
 ```
 
 ## (Un)scale flux by watershed area
